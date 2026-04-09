@@ -1,0 +1,203 @@
+/* =========================================
+   PREMIUM GLASS DASHBOARD & CALENDAR
+   ========================================= */
+
+/* --- DARK GLASS SIDEBAR --- */
+.sidebar {
+  width: 260px;
+  background: rgba(15, 23, 42, 0.65); /* Deep slate frosted glass */
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 0;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+.sidebar-header { padding: 0 20px 30px; }
+.sidebar-header h2 { font-size: 1.2rem; }
+.sidebar-header p { font-size: 0.8rem; color: #94a3b8; }
+
+.sidebar-nav { flex: 1; padding: 0 10px; }
+.sidebar-nav button {
+  width: 100%;
+  padding: 12px 15px;
+  margin-bottom: 5px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #94a3b8;
+  text-align: left;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sidebar-nav button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+}
+
+.sidebar-nav button.active {
+  background: var(--primary-blue);
+  color: white;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.sidebar-footer {
+  padding: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.user-email { font-size: 0.85rem; font-weight: 500; color: white; }
+.user-role { font-size: 0.75rem; color: #94a3b8; text-transform: capitalize; }
+
+.logout-btn {
+  margin-top: 15px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  padding: 10px 15px;
+  border-radius: 8px;
+  width: 100%;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.logout-btn:hover { background: #ef4444; color: white; }
+
+/* --- DASHBOARD LAYOUT & CARDS --- */
+.dashboard-grid {
+  display: flex;
+  gap: 24px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.grid-column-form { flex: 1; min-width: 350px; }
+.grid-column-table { flex: 1.5; min-width: 450px; }
+.grid-column-full { flex: 1; width: 100%; }
+
+/* The Master Dashboard Card */
+.card {
+  background: rgba(255, 255, 255, 0.3); 
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.05);
+}
+
+/* --- FORM ELEMENTS --- */
+.tnp-form .form-row { display: flex; gap: 15px; margin-bottom: 15px; }
+.form-group { flex: 1; display: flex; flex-direction: column; }
+.form-group label { font-size: 0.85rem; margin-bottom: 5px; font-weight: 600; color: #1e293b; }
+
+.form-group input, .form-group select {
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 8px;
+  color: #1e293b;
+  outline: none;
+  font-family: inherit;
+  transition: all 0.3s ease;
+}
+
+.form-group input:focus, .form-group select:focus {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: white;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
+}
+
+.checkbox-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 10px 0 20px; }
+.checkbox-item { font-size: 0.85rem; display: flex; align-items: center; gap: 6px; font-weight: 500; }
+
+.btn-primary {
+  width: 100%;
+  background: linear-gradient(135deg, var(--primary-blue), #3b82f6);
+  color: white;
+  border: none;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s;
+  box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+}
+
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4); }
+
+/* --- TABLE STYLES --- */
+.tnp-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+.tnp-table th { text-align: left; font-size: 0.85rem; color: #475569; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.5); }
+.tnp-table td { padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.3); font-size: 0.9rem; color: #1e293b; }
+
+.badge-status.completed { color: #15803d; background: rgba(34, 197, 94, 0.2); padding: 4px 10px; border-radius: 6px; font-weight: 600; border: 1px solid rgba(34, 197, 94, 0.3); }
+.badge-status.not-started { color: #475569; background: rgba(255, 255, 255, 0.5); padding: 4px 10px; border-radius: 6px; font-weight: 600; border: 1px solid rgba(255, 255, 255, 0.6); }
+
+/* --- CALENDAR GLASS OVERRIDES --- */
+.calendar-top-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.legend { display: flex; gap: 15px; font-size: 0.85rem; font-weight: 600; }
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 8px currentColor; }
+.dot.best { color: #34d399; background-color: #34d399; }
+.dot.moderate { color: #fbbf24; background-color: #fbbf24; }
+.dot.aggressive { color: #f97316; background-color: #f97316; }
+
+.calendar-card { padding: 0; overflow: hidden; }
+
+.calendar-header-nav {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 20px; background: rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.calendar-header-nav button { background: none; border: none; font-size: 1.4rem; color: #1e293b; cursor: pointer; transition: 0.2s; }
+.calendar-header-nav button:hover { transform: scale(1.1); }
+.current-month { font-size: 1.1rem; font-weight: 700; color: #1e293b; }
+
+.days-row {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  background: rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.day-name { text-align: center; padding: 12px; font-size: 0.8rem; font-weight: 700; color: #475569; text-transform: uppercase; }
+
+.calendar-row { display: grid; grid-template-columns: repeat(7, 1fr); }
+
+.calendar-cell {
+  min-height: 120px; padding: 10px;
+  border-right: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer; transition: all 0.2s ease;
+  background: transparent;
+}
+
+.calendar-cell:hover { background: rgba(255, 255, 255, 0.4); }
+.calendar-cell.disabled { opacity: 0.4; pointer-events: none; }
+
+.calendar-cell.selected .date-number {
+  background: linear-gradient(135deg, var(--primary-blue), #3b82f6);
+  color: white; width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; box-shadow: 0 4px 10px rgba(37, 99, 235, 0.4);
+}
+
+.date-number { font-size: 0.9rem; color: #1e293b; font-weight: 600; margin-bottom: 8px; display: inline-block; }
+
+.event-list { display: flex; flex-direction: column; gap: 6px; }
+
+.event-pill {
+  background: linear-gradient(135deg, var(--primary-blue), #3b82f6);
+  color: white; font-size: 0.75rem; padding: 5px 8px;
+  border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-weight: 600; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+}

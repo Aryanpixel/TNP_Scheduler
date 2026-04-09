@@ -1,0 +1,224 @@
+/* =========================================
+   TNP SCHEDULER - GLOBAL STYLES & GLASS UX
+   ========================================= */
+
+:root {
+  --primary-blue: #2563eb;
+  --text-main: #1e293b;
+  --text-muted: #64748b;
+  
+  /* Glass Variables */
+  --glass-bg: rgba(255, 255, 255, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --glass-shadow: rgba(31, 38, 135, 0.05);
+}
+
+/* 1. Strict CSS Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* 2. The Aurora Background */
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--text-main);
+  min-height: 100vh;
+  width: 100vw;
+  overflow-x: hidden;
+  
+  /* The Mesh Gradient */
+  background-color: #f8fafc;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(37, 99, 235, 0.2) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(147, 51, 234, 0.2) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(56, 189, 248, 0.2) 0px, transparent 50%);
+  background-attachment: fixed;
+}
+
+/* 3. The Reusable Glass Component */
+.glass-card {
+  background: var(--glass-bg); 
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 8px 32px 0 var(--glass-shadow);
+  border-radius: 16px;
+  padding: 40px;
+}
+
+/* Layout Utilities used by App.jsx */
+.app-container {
+  display: flex;
+  min-height: 100vh;
+}
+
+.main-layout {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.content-area {
+  padding: 30px;
+}
+
+
+
+
+
+
+
+
+
+/* =========================================
+   ULTRA PRO ANIMATIONS & ORBS
+   ========================================= */
+
+/* 1. Make the glass more transparent so we can see the magic behind it */
+.glass-card {
+  background: rgba(255, 255, 255, 0.25); /* Dropped from 0.65 to 0.25 */
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  animation: slideUpFade 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 2. Floating Animation Keyframes */
+@keyframes float {
+  0% { transform: translate(0px, 0px) scale(1); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+  100% { transform: translate(0px, 0px) scale(1); }
+}
+
+/* Entrance Animation for the Card */
+@keyframes slideUpFade {
+  0% { opacity: 0; transform: translateY(40px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* 3. The Glowing Background Orbs */
+.background-orbs {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: -1; /* Keeps them behind your UI */
+  overflow: hidden;
+  pointer-events: none; /* User can't click them */
+}
+
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px); /* Makes them look like glowing light */
+  opacity: 0.8;
+  animation: float 15s infinite ease-in-out;
+}
+
+.orb-1 {
+  width: 400px;
+  height: 400px;
+  background: #2563eb; /* Primary Blue */
+  top: -10%;
+  left: -10%;
+}
+
+.orb-2 {
+  width: 500px;
+  height: 500px;
+  background: #9333ea; /* Deep Purple */
+  bottom: -20%;
+  right: -10%;
+  animation-delay: -5s; /* Makes it move out of sync with orb-1 */
+}
+
+.orb-3 {
+  width: 300px;
+  height: 300px;
+  background: #38bdf8; /* Neon Sky Blue */
+  top: 40%;
+  left: 50%;
+  animation-delay: -10s;
+}
+
+
+
+
+
+/* --- PREMIUM DARK GLASS SIDEBAR --- */
+.sidebar {
+  width: 260px;
+  background: rgba(15, 23, 42, 0.65); /* Deep slate with transparency */
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  padding: 30px 0;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+.sidebar-header, .sidebar-footer {
+  padding: 0 24px;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 20px;
+}
+
+.sidebar-nav {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 0 12px;
+}
+
+.sidebar-nav button {
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #94a3b8;
+  text-align: left;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sidebar-nav button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+}
+
+.sidebar-nav button.active {
+  background: var(--primary-blue);
+  color: white;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.logout-btn {
+  width: 100%;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: 0.2s;
+  font-weight: 600;
+}
+
+.logout-btn:hover {
+  background: #ef4444;
+  color: white;
+}

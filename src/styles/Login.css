@@ -1,0 +1,116 @@
+/* =========================================
+   PREMIUM LOGIN & SIGNUP UI
+   ========================================= */
+
+.login-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  width: 100%;
+  background-color: transparent; 
+}
+
+.login-container {
+  width: 100%;
+  max-width: 420px;
+  padding: 0 20px;
+  z-index: 10; /* Ensures it sits above the orbs */
+}
+
+.login-brand {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.icon-box { 
+  font-size: 2.5rem; 
+  background: rgba(255, 255, 255, 0.3); 
+  width: 65px; 
+  height: 65px; 
+  line-height: 65px;
+  border-radius: 16px; 
+  margin: 0 auto 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+  text-align: center;
+}
+
+/* --- iOS Style Segmented Control --- */
+.role-selector {
+  display: flex;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 6px;
+  border-radius: 12px;
+  margin-bottom: 1.8rem;
+  gap: 4px;
+}
+
+.role-selector button {
+  flex: 1; 
+  border: none; 
+  padding: 10px;
+  border-radius: 8px; 
+  cursor: pointer;
+  font-weight: 600; 
+  color: #475569;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  background: transparent;
+}
+
+.role-selector button.active {
+  background: rgba(255, 255, 255, 0.9); 
+  color: var(--primary-blue);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* --- Frosted Glass Inputs --- */
+.login-input {
+  width: 100%;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.4); 
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 10px;
+  margin-bottom: 18px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: var(--text-main);
+  outline: none;
+  transition: all 0.3s ease;
+}
+
+.login-input::placeholder {
+  color: #64748b;
+  opacity: 0.8;
+}
+
+.login-input:focus {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(255, 255, 255, 1);
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+/* --- Premium Primary Button --- */
+.login-btn {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, var(--primary-blue), #3b82f6);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  margin-top: 10px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+}
+
+.login-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+  background: linear-gradient(135deg, #1d4ed8, var(--primary-blue));
+}
