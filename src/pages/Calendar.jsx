@@ -1,191 +1,328 @@
-import React, { useState, useEffect } from 'react';
-import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay } from 'date-fns';
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  format, startOfMonth, endOfMonth, startOfWeek,
+  endOfWeek, addDays, isSameMonth, isSameDay, differenceInCalendarDays
+} from 'date-fns';
 import '../styles/Dashboard.css';
 import '../styles/Calendar.css';
 
+// ─── SLOT COLORS ──────────────────────────────────────────────────────────────
 const SLOT_COLORS = [
-  { bg: 'rgba(37,99,235,0.10)',  border: 'rgba(37,99,235,0.25)',  text: '#1e40af' },
-  { bg: 'rgba(5,150,105,0.10)',  border: 'rgba(5,150,105,0.25)',  text: '#065f46' },
-  { bg: 'rgba(124,58,237,0.10)', border: 'rgba(124,58,237,0.25)', text: '#5b21b6' },
-  { bg: 'rgba(217,119,6,0.10)',  border: 'rgba(217,119,6,0.25)',  text: '#92400e' },
-  { bg: 'rgba(220,38,38,0.10)',  border: 'rgba(220,38,38,0.25)',  text: '#991b1b' },
+  { bg:'rgba(37,99,235,0.14)',  border:'rgba(37,99,235,0.40)',  text:'#93c5fd' },
+  { bg:'rgba(5,150,105,0.14)',  border:'rgba(5,150,105,0.40)',  text:'#6ee7b7' },
+  { bg:'rgba(124,58,237,0.14)', border:'rgba(124,58,237,0.40)', text:'#c4b5fd' },
+  { bg:'rgba(217,119,6,0.14)',  border:'rgba(217,119,6,0.40)',  text:'#fcd34d' },
+  { bg:'rgba(220,38,38,0.14)',  border:'rgba(220,38,38,0.40)',  text:'#fca5a5' },
 ];
 
-const emptySlots = () => ({ 1: null, 2: null, 3: null, 4: null, 5: null });
-const getSafeToken = () => { const t = localStorage.getItem('token'); return t ? t.replace(/"/g, '') : null; };
-const buildLabel = (c) => { const m = c.conductModes?.[0] || ''; return m ? `${c.companyName} (${m})` : c.companyName; };
+const ROOM_CAPACITY = { Interview: 5, GD: 2, PPT: 1, OA: Infinity };
 
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+const emptySlots   = () => ({ 1:null, 2:null, 3:null, 4:null, 5:null });
+const getSafeToken = () => { const t = localStorage.getItem('token'); return t ? t.replace(/"/g,'') : null; };
+const fmtKey       = (d) => format(d, 'yyyy-MM-dd');
+const buildLabel   = (c) => { const m = c.conductModes?.[0]||''; return m ? `${c.companyName} (${m})` : c.companyName; };
+
+// ─── RECOMMENDATION ENGINE ────────────────────────────────────────────────────
+//
+// A smarter multi-factor urgency model:
+//
+// 1. PROXIMITY (primary driver)
+//    Days away from today. Closest dates are most urgent.
+//    Mapped on a soft exponential: prox = e^(-daysAway / 7)
+//    → 0 days: 1.0 | 7 days: 0.37 | 14 days: 0.14 | 30 days: 0.013
+//
+// 2. CONGESTION BONUS
+//    Dates that already have companies booked should be preferred
+//    (consolidate rather than scatter) — but not if they're almost full.
+//    bonus = filledSlots / 5  (0 → 0, 4 → 0.8, capped)
+//
+// 3. WEEKEND PENALTY
+//    Saturdays and Sundays get a 40% penalty — most campus drives run weekdays.
+//
+// Final urgency = prox * (1 + 0.4 * congestionBonus) * weekdayFactor
+//
+// Thresholds (tuned empirically):
+//   urgency >= 0.55  →  Aggressive  (0–5 days out)
+//   urgency >= 0.18  →  Normal      (6–20 days out)
+//   urgency <  0.18  →  Lenient     (>20 days)
+//
+
+const isWeekend = (dateStr) => {
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay();
+  return day === 0 || day === 6; // Sunday or Saturday
+};
+
+const computeUrgency = (dateStr, filledCount, today = new Date()) => {
+  const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const target   = new Date(dateStr + 'T00:00:00');
+  const daysAway = Math.max(0, differenceInCalendarDays(target, todayMid));
+
+  const proximity        = Math.exp(-daysAway / 7);
+  const congestionBonus  = Math.min(filledCount, 4) / 5; // 0–0.8, never full
+  const weekdayFactor    = isWeekend(dateStr) ? 0.6 : 1.0;
+
+  const urgency = proximity * (1 + 0.4 * congestionBonus) * weekdayFactor;
+
+  let label, tagline;
+  if (urgency >= 0.55) {
+    label   = 'Aggressive';
+    tagline = 'Very soon — schedule now';
+  } else if (urgency >= 0.18) {
+    label   = 'Normal';
+    tagline = 'Coming up — plan ahead';
+  } else {
+    label   = 'Lenient';
+    tagline = 'Far out — no rush';
+  }
+
+  return { label, urgency: Math.round(urgency * 1000) / 1000, daysAway };
+};
+
+// ─── COMPONENT ────────────────────────────────────────────────────────────────
 const Calendar = ({ userRole }) => {
   const [currentDate, setCurrentDate]     = useState(new Date());
-  const [slots, setSlots]                 = useState({});
   const [rawCompanies, setRawCompanies]   = useState([]);
   const [holidays, setHolidays]           = useState({});
-  const [modal, setModal]                 = useState(null);
-  const [tab, setTab]                     = useState('allot');
-  const [allotSlot, setAllotSlot]         = useState('1');
-  const [selectedCoId, setSelectedCoId]   = useState('');
-  const [cancelSlot, setCancelSlot]       = useState('1');
-  const [updateCoId, setUpdateCoId]       = useState('');
-  const [updateNewSlot, setUpdateNewSlot] = useState('1');
-  const [holidayName, setHolidayName]     = useState('');
   const [isLoading, setIsLoading]         = useState(true);
 
-  const isAdmin  = userRole === 'admin';
-  const key      = (d) => format(d, 'yyyy-MM-dd');
-  const daySlots = (d) => slots[key(d)] || emptySlots();
-  const holiday  = (d) => holidays[key(d)] || null;
+  // Admin bar
+  const [selDate, setSelDate]             = useState(null);
+  const [tab, setTab]                     = useState('allot');
+  const [allotSlot, setAllotSlot]         = useState('1');
+  const [selCoId, setSelCoId]             = useState('');
+  const [cancelSlot, setCancelSlot]       = useState('1');
+  const [updCoId, setUpdCoId]             = useState('');
+  const [updNewSlot, setUpdNewSlot]       = useState('1');
+  const [holName, setHolName]             = useState('');
+  const [clashWarning, setClashWarning]   = useState(null);
 
+  // Note panel
+  const [noteTarget, setNoteTarget]       = useState(null);
+  const [noteText, setNoteText]           = useState('');
+  const [noteSaving, setNoteSaving]       = useState(false);
+
+  // Detail popup
+  const [detailCo, setDetailCo]           = useState(null);
+
+  const isAdmin = userRole === 'admin';
+
+  // ── DERIVED DATA ─────────────────────────────────────────
+  const slots = useMemo(() => {
+    const s = {};
+    rawCompanies.forEach(c => {
+      if (c.schedule?.date && c.schedule?.slot) {
+        const dk = c.schedule.date;
+        const sn = Number(c.schedule.slot); // coerce — DB returns strings, keys are numbers
+        if (!s[dk]) s[dk] = emptySlots();
+        s[dk][sn] = { id: c._id, display: buildLabel(c), company: c };
+      }
+    });
+    return s;
+  }, [rawCompanies]);
+
+  const daySlots = (d) => slots[fmtKey(d)] || emptySlots();
+  const holiday  = (d) => holidays[fmtKey(d)] || null;
+
+  // ── FETCH ────────────────────────────────────────────────
   const fetchAll = async () => {
     try {
       const token = getSafeToken();
       if (!token) { setIsLoading(false); return; }
-
-      const [compRes, holRes] = await Promise.all([
-        fetch('http://localhost:5000/api/companies', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('http://localhost:5000/api/holidays',  { headers: { Authorization: `Bearer ${token}` } }),
+      const [cr, hr] = await Promise.all([
+        fetch('http://localhost:5000/api/companies', { headers:{ Authorization:`Bearer ${token}` } }),
+        fetch('http://localhost:5000/api/holidays',  { headers:{ Authorization:`Bearer ${token}` } }),
       ]);
-
-      if (compRes.status === 401) { setIsLoading(false); return; }
-
-      const compData = compRes.ok ? await compRes.json() : [];
-      const holData  = holRes.ok  ? await holRes.json()  : [];
-
-      setRawCompanies(compData);
-      const holMap = {};
-      holData.forEach(h => { holMap[h.date] = h.name; });
-      setHolidays(holMap);
-
-      const mappedSlots = {};
-      compData.forEach(c => {
-        if (c.schedule?.date) {
-          const dKey = c.schedule.date;
-          const sNum = c.schedule.slot;
-          if (!mappedSlots[dKey]) mappedSlots[dKey] = emptySlots();
-          mappedSlots[dKey][sNum] = { id: c._id, display: buildLabel(c) };
-        }
-      });
-      setSlots(mappedSlots);
-    } catch (err) {
-      console.error('Failed to sync calendar', err);
-    } finally {
-      setIsLoading(false);
-    }
+      if (cr.status === 401) { setIsLoading(false); return; }
+      setRawCompanies(cr.ok ? await cr.json() : []);
+      const hd = hr.ok ? await hr.json() : [];
+      const hm = {}; hd.forEach(h => { hm[h.date] = h.name; });
+      setHolidays(hm);
+    } catch(e) { console.error(e); }
+    finally { setIsLoading(false); }
   };
 
   useEffect(() => { fetchAll(); }, []);
 
-  const openModal = (day) => {
+  // ── OPEN DATE ────────────────────────────────────────────
+  const openDate = (d) => {
     if (!isAdmin) return;
-    const s = daySlots(day);
-    const firstFree = [1,2,3,4,5].find(n => !s[n]) || 1;
-    setAllotSlot(String(firstFree));
-    setSelectedCoId(''); setCancelSlot('1');
-    setUpdateCoId(''); setUpdateNewSlot('1');
-    setHolidayName(holiday(day) || '');
-    setTab(holiday(day) ? 'holiday' : 'allot');
-    setModal(day);
+    // Sundays: warn admin, let them decide
+    if (d.getDay() === 0) {
+      const proceed = window.confirm(
+        `⚠️ ${format(d, 'MMMM d')} is a Sunday.\n\nSundays are typically non-working days. Do you still want to manage slots for this date?`
+      );
+      if (!proceed) return;
+    }
+    const s = daySlots(d);
+    const ff = [1,2,3,4,5].find(n => !s[n]) || 1;
+    setAllotSlot(String(ff)); setSelCoId('');
+    setCancelSlot('1'); setUpdCoId(''); setUpdNewSlot('1');
+    setHolName(holiday(d) || ''); setClashWarning(null);
+    setTab(holiday(d) ? 'holiday' : 'allot');
+    setSelDate(d);
   };
+  const closeDate = () => { setSelDate(null); setClashWarning(null); };
 
-  const closeModal = () => { setModal(null); setSelectedCoId(''); setHolidayName(''); };
-
+  // ── API ──────────────────────────────────────────────────
   const apiPut = async (id, body) => {
     const token = getSafeToken();
     const res = await fetch(`http://localhost:5000/api/companies/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(body)
+      method:'PUT',
+      headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
+      body: JSON.stringify(body),
     });
-    if (!res.ok) { const d = await res.json(); alert(d.message); return false; }
-    return true;
+    const data = await res.json();
+    if (!res.ok) { const e = new Error(data.message); e.clashes = data.clashes; throw e; }
+    return data;
   };
 
+  // ── ALLOT ────────────────────────────────────────────────
   const doAllot = async () => {
-    if (!selectedCoId) return alert('Please select a company.');
-    if (daySlots(modal)[allotSlot]) return alert('Slot already taken.');
-    if (await apiPut(selectedCoId, { schedule: { date: key(modal), slot: allotSlot } })) {
-      await fetchAll(); closeModal();
-    }
+    if (!selCoId) return alert('Select a company.');
+    if (daySlots(selDate)[allotSlot]) return alert('Slot already taken.');
+    setClashWarning(null);
+    try { await apiPut(selCoId, { schedule:{ date:fmtKey(selDate), slot:allotSlot } }); await fetchAll(); closeDate(); }
+    catch(e) { if (e.clashes) setClashWarning(e.clashes); else alert(e.message); }
   };
 
+  // ── UPDATE ───────────────────────────────────────────────
   const doUpdate = async () => {
-    if (!updateCoId) return alert('Select a company to move.');
-    if (daySlots(modal)[updateNewSlot]) return alert('Target slot is already occupied.');
-    if (await apiPut(updateCoId, { schedule: { date: key(modal), slot: updateNewSlot } })) {
-      await fetchAll(); closeModal();
-    }
+    if (!updCoId) return alert('Select a company to move.');
+    if (daySlots(selDate)[updNewSlot]) return alert('Target slot is occupied.');
+    setClashWarning(null);
+    try { await apiPut(updCoId, { schedule:{ date:fmtKey(selDate), slot:updNewSlot } }); await fetchAll(); closeDate(); }
+    catch(e) { if (e.clashes) setClashWarning(e.clashes); else alert(e.message); }
   };
 
+  // ── CANCEL ───────────────────────────────────────────────
   const doCancel = async () => {
-    const co = daySlots(modal)[Number(cancelSlot)];
-    if (!co) return alert('This slot is already empty.');
-    if (!window.confirm(`Cancel allotment for "${co.display}"?`)) return;
-    if (await apiPut(co.id, { schedule: { date: null, slot: null } })) {
-      await fetchAll(); closeModal();
-    }
+    const co = daySlots(selDate)[Number(cancelSlot)];
+    if (!co) return alert('Slot is already empty.');
+    if (!window.confirm(`Cancel "${co.display}"?`)) return;
+    try { await apiPut(co.id, { schedule:{ date:null, slot:null, note:'' } }); await fetchAll(); closeDate(); }
+    catch(e) { alert(e.message); }
   };
 
+  // ── HOLIDAY ──────────────────────────────────────────────
   const doHoliday = async () => {
-    if (!holidayName.trim()) return alert('Enter a holiday name.');
+    if (!holName.trim()) return alert('Enter a holiday name.');
     const token = getSafeToken();
     const res = await fetch('http://localhost:5000/api/holidays', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ date: key(modal), name: holidayName.trim() })
+      method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
+      body: JSON.stringify({ date:fmtKey(selDate), name:holName.trim() }),
     });
-    if (res.ok) { await fetchAll(); closeModal(); }
-    else { const d = await res.json(); alert(d.message); }
+    if (res.ok) { await fetchAll(); closeDate(); } else { const d = await res.json(); alert(d.message); }
   };
-
   const doRemoveHoliday = async () => {
     const token = getSafeToken();
-    const res = await fetch(`http://localhost:5000/api/holidays/${key(modal)}`, {
-      method: 'DELETE', headers: { Authorization: `Bearer ${token}` }
-    });
-    if (res.ok) { await fetchAll(); closeModal(); }
-    else { const d = await res.json(); alert(d.message); }
+    const res = await fetch(`http://localhost:5000/api/holidays/${fmtKey(selDate)}`, { method:'DELETE', headers:{ Authorization:`Bearer ${token}` } });
+    if (res.ok) { await fetchAll(); closeDate(); } else { const d = await res.json(); alert(d.message); }
   };
 
-  // Calendar grid
-  const monthStart = startOfMonth(currentDate);
-  const rows = [];
-  let day = startOfWeek(monthStart, { weekStartsOn: 1 });
-  const endDate = endOfWeek(endOfMonth(monthStart), { weekStartsOn: 1 });
+  // ── SAVE NOTE ────────────────────────────────────────────
+  const saveNote = async () => {
+    if (!noteTarget) return;
+    setNoteSaving(true);
+    try { await apiPut(noteTarget.companyId, { 'schedule.note': noteText.trim() }); await fetchAll(); setNoteTarget(null); }
+    catch(e) { alert(e.message); }
+    finally { setNoteSaving(false); }
+  };
 
-  while (day <= endDate) {
+  // ── RECOMMENDATIONS ──────────────────────────────────────
+  // Smarter: proximity + congestion consolidation + weekday preference
+  const recommendations = useMemo(() => {
+    const today   = new Date();
+    const byLabel = { Aggressive:[], Normal:[], Lenient:[] };
+
+    for (let i = 1; i <= 60; i++) {
+      const d  = addDays(today, i);
+      const dk = fmtKey(d);
+      if (holidays[dk]) continue;
+
+      const s      = slots[dk] || emptySlots();
+      const filled = [1,2,3,4,5].filter(n => s[n]).length;
+      if (filled >= 5) continue;
+
+      const { label, urgency, daysAway } = computeUrgency(dk, filled, today);
+
+      // Cap each bucket at 3 entries, sorted by urgency desc within bucket
+      if (byLabel[label].length < 3) {
+        byLabel[label].push({
+          date: dk,
+          displayDate: format(d, 'EEE, MMM d'),
+          freeSlots:   5 - filled,
+          filledSlots: filled,
+          daysAway,
+          urgency,
+          weekend: isWeekend(dk),
+        });
+      }
+    }
+
+    // Sort each bucket by urgency descending
+    Object.values(byLabel).forEach(arr => arr.sort((a, b) => b.urgency - a.urgency));
+
+    return byLabel;
+  }, [slots, holidays]);
+
+  // ── CALENDAR GRID ────────────────────────────────────────
+  const monthStart = startOfMonth(currentDate);
+  const gridStart  = startOfWeek(monthStart, { weekStartsOn:1 });
+  const gridEnd    = endOfWeek(endOfMonth(monthStart), { weekStartsOn:1 });
+
+  const rows = [];
+  let day = gridStart;
+  while (day <= gridEnd) {
     const cells = [];
     for (let i = 0; i < 7; i++) {
       const d = day;
-      const inMonth    = isSameMonth(d, monthStart);
-      const isToday    = isSameDay(d, new Date());
-      const hol        = holiday(d);
-      const s          = daySlots(d);
-      const isSelected = modal && isSameDay(d, modal);
+      const inMonth = isSameMonth(d, monthStart);
+      const isToday = isSameDay(d, new Date());
+      const hol = holiday(d);
+      const s   = daySlots(d);
+      const isSel = selDate && isSameDay(d, selDate);
+
       cells.push(
         <div key={d.toString()}
-          className={['cal-cell', !inMonth?'disabled':'', isToday?'today':'', hol?'hol-cell':'', isSelected?'selected-day':''].filter(Boolean).join(' ')}
-          onClick={() => inMonth && openModal(d)}
+          className={['cal-cell', !inMonth?'disabled':'', isToday?'today':'', hol?'hol-cell':'', isSel?'selected-day':''].filter(Boolean).join(' ')}
+          onClick={() => inMonth && openDate(d)}
         >
           <div className="cal-date-row">
-            <span className={`cal-date ${isToday ? 'today-dot' : ''}`}>{format(d,'d')}</span>
+            <span className={`cal-date${isToday?' today-dot':''}`}>{format(d,'d')}</span>
           </div>
-          {hol
-            ? <div className="cal-hol-tag">🎉 {hol}</div>
-            : <div className="cal-slots">
-                {[1,2,3,4,5].map(n => {
-                  const c = SLOT_COLORS[n-1];
-                  return (
-                    <div key={n} className="cal-slot" style={{
-                      background: s[n] ? c.bg : 'rgba(148,163,184,0.06)',
-                      border: `1px solid ${s[n] ? c.border : 'rgba(148,163,184,0.18)'}`
-                    }}>
-                      {s[n]
-                        ? <span className="slot-filled" style={{ color: c.text }}>{s[n].display}</span>
-                        : <span className="slot-empty">S{n}</span>}
-                    </div>
-                  );
-                })}
-              </div>
-          }
+
+          {hol ? (
+            <div className="cal-hol-tag">🎉 {hol}</div>
+          ) : (
+            <div className="cal-slots">
+              {[1,2,3,4,5].map(n => {
+                const c    = SLOT_COLORS[n-1];
+                const slot = s[n];
+                return (
+                  <div key={n}
+                    className={`cal-slot${slot?' cal-slot--filled':' cal-slot--empty'}`}
+                    style={{ background: slot?c.bg:'rgba(148,163,184,0.06)', border:`1px solid ${slot?c.border:'rgba(148,163,184,0.18)'}` }}
+                    onClick={slot ? (e) => { e.stopPropagation(); setDetailCo(slot.company); } : undefined}
+                    title={slot ? `Click for details: ${slot.display}` : `Slot ${n} — available`}
+                  >
+                    <span className={slot?'slot-filled':'slot-empty'} style={slot?{color:c.text}:{}}>
+                      {slot ? slot.display : `S${n}`}
+                    </span>
+                    {slot && isAdmin && (
+                      <button className="slot-note-btn"
+                        title={slot.company.schedule?.note ? 'Edit note' : 'Add note'}
+                        onClick={(e) => { e.stopPropagation(); setNoteTarget({ companyId:slot.id, slot:n }); setNoteText(slot.company.schedule?.note||''); }}
+                      >
+                        {slot.company.schedule?.note ? '📝' : '+'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       );
       day = addDays(day, 1);
@@ -193,122 +330,184 @@ const Calendar = ({ userRole }) => {
     rows.push(<div key={day.toString()} className="cal-row">{cells}</div>);
   }
 
-  // Admin bar
+  // ── ADMIN BAR ────────────────────────────────────────────
   const unscheduled    = rawCompanies.filter(c => !c.schedule?.date);
-  const scheduledOnDay = modal ? rawCompanies.filter(c => c.schedule?.date === key(modal)) : [];
+  const scheduledOnDay = selDate ? rawCompanies.filter(c => c.schedule?.date === fmtKey(selDate)) : [];
 
-  const renderAdminBar = () => {
-    if (!isAdmin) return null;
-    if (!modal) {
-      return (
-        <div className="admin-control-bar admin-control-bar--hint">
-          <p className="admin-hint-text">👆 Click any date to manage slots or declare holidays.</p>
-        </div>
-      );
-    }
+  return (
+    <div className="calendar-page">
 
-    const s   = daySlots(modal);
-    const hol = holiday(modal);
+      {/* Page header */}
+      <div className="cal-page-header">
+        <h1 className="cal-page-title">Calendar</h1>
+        <p className="cal-page-sub">
+          {isAdmin ? 'Click a date to manage slots. Click any company pill to view details.' : 'Placement schedule — view only'}
+        </p>
+      </div>
 
-    return (
-      <div className="admin-control-bar">
-        <div className="control-group">
-          <label>Mode — {format(modal, 'MMM d, yyyy')}</label>
-          <select className="admin-select" value={tab} onChange={e => setTab(e.target.value)}>
-            <option value="allot">📌 Allot Slot</option>
-            <option value="update">✏️ Update Slot</option>
-            <option value="cancel">❌ Cancel Slot</option>
-            <option value="holiday">🎉 Holiday</option>
-          </select>
-        </div>
+      {/* Admin bar */}
+      {isAdmin && (() => {
+        if (!selDate) return (
+          <div className="admin-control-bar admin-control-bar--hint">
+            <p className="admin-hint-text">👆 Click any date to manage slots or declare holidays.</p>
+          </div>
+        );
+        const s = daySlots(selDate), hol = holiday(selDate);
+        return (
+          <div className="admin-control-bar">
+            <div className="control-group">
+              <label>Mode — {format(selDate,'MMM d, yyyy')}</label>
+              <select className="admin-select" value={tab} onChange={e=>{ setTab(e.target.value); setClashWarning(null); }}>
+                <option value="allot">📌 Allot Slot</option>
+                <option value="update">✏️ Update Slot</option>
+                <option value="cancel">❌ Cancel Slot</option>
+                <option value="holiday">🎉 Holiday</option>
+              </select>
+            </div>
 
-        {tab === 'allot' && (<>
-          {hol
-            ? <p className="admin-warn">⚠️ Holiday declared. Remove it first to allot slots.</p>
-            : <>
+            {tab==='allot' && (<>
+              {hol ? <p className="admin-warn">⚠️ Holiday — remove first.</p> : <>
                 <div className="control-group">
                   <label>Slot</label>
-                  <select className="admin-select" value={allotSlot} onChange={e => setAllotSlot(e.target.value)}>
-                    {[1,2,3,4,5].map(n => <option key={n} value={n} disabled={!!s[n]}>Slot {n} {s[n] ? `— Booked` : '(Free)'}</option>)}
+                  <select className="admin-select" value={allotSlot} onChange={e=>{ setAllotSlot(e.target.value); setClashWarning(null); }}>
+                    {[1,2,3,4,5].map(n=><option key={n} value={n} disabled={!!s[n]}>Slot {n} {s[n]?'— Booked':'(Free)'}</option>)}
                   </select>
                 </div>
                 <div className="control-group">
                   <label>Company</label>
-                  <select className="admin-select" value={selectedCoId} onChange={e => setSelectedCoId(e.target.value)}>
+                  <select className="admin-select" value={selCoId} onChange={e=>{ setSelCoId(e.target.value); setClashWarning(null); }}>
                     <option value="">-- Select --</option>
-                    {unscheduled.map(c => <option key={c._id} value={c._id}>{c.companyName}</option>)}
+                    {unscheduled.map(c=><option key={c._id} value={c._id}>{c.companyName}</option>)}
                   </select>
                 </div>
-                <button className="cal-action-btn cal-action-btn--primary" onClick={doAllot} disabled={!selectedCoId}>Allot</button>
-              </>
-          }
-          <button className="cal-action-btn cal-action-btn--exit" onClick={closeModal}>Exit</button>
-        </>)}
+                <button className="cal-action-btn cal-action-btn--primary" onClick={doAllot} disabled={!selCoId}>Allot</button>
+              </>}
+              <button className="cal-action-btn cal-action-btn--exit" onClick={closeDate}>Exit</button>
+            </>)}
 
-        {tab === 'update' && (<>
-          {hol
-            ? <p className="admin-warn">⚠️ This day is a holiday.</p>
-            : <>
+            {tab==='update' && (<>
+              {hol ? <p className="admin-warn">⚠️ Holiday.</p> : <>
                 <div className="control-group">
                   <label>Company to Move</label>
-                  <select className="admin-select" value={updateCoId} onChange={e => setUpdateCoId(e.target.value)}>
-                    <option value="">-- Select company --</option>
-                    {scheduledOnDay.map(c => <option key={c._id} value={c._id}>{buildLabel(c)} → Slot {c.schedule.slot}</option>)}
+                  <select className="admin-select" value={updCoId} onChange={e=>{ setUpdCoId(e.target.value); setClashWarning(null); }}>
+                    <option value="">-- Select --</option>
+                    {scheduledOnDay.map(c=><option key={c._id} value={c._id}>{buildLabel(c)} → S{c.schedule.slot}</option>)}
                   </select>
                 </div>
                 <div className="control-group">
                   <label>Move to Slot</label>
-                  <select className="admin-select" value={updateNewSlot} onChange={e => setUpdateNewSlot(e.target.value)}>
-                    {[1,2,3,4,5].map(n => <option key={n} value={n} disabled={!!s[n]}>Slot {n} {s[n] ? '— Booked' : '(Free)'}</option>)}
+                  <select className="admin-select" value={updNewSlot} onChange={e=>setUpdNewSlot(e.target.value)}>
+                    {[1,2,3,4,5].map(n=><option key={n} value={n} disabled={!!s[n]}>Slot {n} {s[n]?'— Booked':'(Free)'}</option>)}
                   </select>
                 </div>
-                <button className="cal-action-btn cal-action-btn--update" onClick={doUpdate} disabled={!updateCoId}>Move Slot</button>
-              </>
-          }
-          <button className="cal-action-btn cal-action-btn--exit" onClick={closeModal}>Exit</button>
-        </>)}
+                <button className="cal-action-btn cal-action-btn--update" onClick={doUpdate} disabled={!updCoId}>Move</button>
+              </>}
+              <button className="cal-action-btn cal-action-btn--exit" onClick={closeDate}>Exit</button>
+            </>)}
 
-        {tab === 'cancel' && (<>
-          <div className="control-group">
-            <label>Slot to Cancel</label>
-            <select className="admin-select" value={cancelSlot} onChange={e => setCancelSlot(e.target.value)}>
-              {[1,2,3,4,5].map(n => <option key={n} value={n}>Slot {n} {s[n] ? `— ${s[n].display}` : '(empty)'}</option>)}
-            </select>
+            {tab==='cancel' && (<>
+              <div className="control-group">
+                <label>Slot to Cancel</label>
+                <select className="admin-select" value={cancelSlot} onChange={e=>setCancelSlot(e.target.value)}>
+                  {[1,2,3,4,5].map(n=><option key={n} value={n}>Slot {n} {s[n]?`— ${s[n].display}`:'(empty)'}</option>)}
+                </select>
+              </div>
+              <button className="cal-action-btn cal-action-btn--danger" onClick={doCancel} disabled={!s[Number(cancelSlot)]}>Cancel</button>
+              <button className="cal-action-btn cal-action-btn--exit" onClick={closeDate}>Exit</button>
+            </>)}
+
+            {tab==='holiday' && (<>
+              <div className="control-group">
+                <label>Holiday Name</label>
+                <input className="admin-input" value={holName} onChange={e=>setHolName(e.target.value)} placeholder="e.g. Diwali" />
+              </div>
+              {hol
+                ? <button className="cal-action-btn cal-action-btn--danger" onClick={doRemoveHoliday}>Remove</button>
+                : <button className="cal-action-btn cal-action-btn--holiday" onClick={doHoliday}>Declare</button>}
+              <button className="cal-action-btn cal-action-btn--exit" onClick={closeDate}>Exit</button>
+            </>)}
           </div>
-          <button className="cal-action-btn cal-action-btn--danger" onClick={doCancel} disabled={!s[Number(cancelSlot)]}>Cancel Allotment</button>
-          <button className="cal-action-btn cal-action-btn--exit" onClick={closeModal}>Exit</button>
-        </>)}
+        );
+      })()}
 
-        {tab === 'holiday' && (<>
-          <div className="control-group">
-            <label>Holiday Name</label>
-            <input className="admin-input" value={holidayName} onChange={e => setHolidayName(e.target.value)} placeholder="e.g. Diwali, Republic Day" />
+      {/* Clash warning */}
+      {clashWarning && (
+        <div className="clash-warning">
+          <p className="clash-warning__title">⚠️ Clash Detected — slot not allotted</p>
+          <ul className="clash-warning__list">
+            {clashWarning.map((c,i) => <li key={i}>{c}</li>)}
+          </ul>
+          <button className="clash-warning__close" onClick={() => setClashWarning(null)}>Dismiss</button>
+        </div>
+      )}
+
+      {/* Recommendation panel */}
+      {(() => {
+        const { Aggressive, Normal, Lenient } = recommendations;
+        if (!Aggressive?.length && !Normal?.length && !Lenient?.length) return null;
+        return (
+          <div className="rec-panel">
+            <p className="rec-panel__title">🎯 Slot Recommendations</p>
+            <p className="rec-panel__sub">
+              Dates ranked by proximity, schedule density, and weekday preference.
+            </p>
+            <div className="rec-grid">
+              {[
+                {
+                  label: 'Aggressive',
+                  color: '#ef4444',
+                  bg:    'rgba(239,68,68,0.08)',
+                  desc:  'Schedule immediately',
+                  icon:  '🔴',
+                  items: recommendations.Aggressive || [],
+                },
+                {
+                  label: 'Normal',
+                  color: '#f59e0b',
+                  bg:    'rgba(245,158,11,0.08)',
+                  desc:  'Good window to plan',
+                  icon:  '🟡',
+                  items: recommendations.Normal || [],
+                },
+                {
+                  label: 'Lenient',
+                  color: '#10b981',
+                  bg:    'rgba(16,185,129,0.08)',
+                  desc:  'No urgency yet',
+                  icon:  '🟢',
+                  items: recommendations.Lenient || [],
+                },
+              ].map(col => (
+                <div key={col.label} className="rec-col" style={{ background: col.bg, borderColor: col.color + '55' }}>
+                  <p className="rec-col__label" style={{ color: col.color }}>{col.icon} {col.label}</p>
+                  <p className="rec-col__desc">{col.desc}</p>
+                  {col.items.length === 0
+                    ? <p className="rec-col__empty">No dates in this range</p>
+                    : col.items.map(r => (
+                        <div key={r.date} className="rec-item">
+                          <div>
+                            <span className="rec-item__date">{r.displayDate}</span>
+                            {r.weekend && <span className="rec-item__weekend"> · Weekend</span>}
+                            {r.filledSlots > 0 && (
+                              <span className="rec-item__density"> · {r.filledSlots} co. booked</span>
+                            )}
+                          </div>
+                          <span className="rec-item__slots">{r.freeSlots} free</span>
+                        </div>
+                      ))
+                  }
+                </div>
+              ))}
+            </div>
           </div>
-          {hol
-            ? <button className="cal-action-btn cal-action-btn--danger" onClick={doRemoveHoliday}>Remove Holiday</button>
-            : <button className="cal-action-btn cal-action-btn--holiday" onClick={doHoliday}>Declare Holiday</button>
-          }
-          <button className="cal-action-btn cal-action-btn--exit" onClick={closeModal}>Exit</button>
-        </>)}
-      </div>
-    );
-  };
+        );
+      })()}
 
-  return (
-    <div className="calendar-page">
-      <div className="cal-page-header">
-        <h1 className="cal-page-title">Calendar</h1>
-        <p className="cal-page-sub">
-          {isAdmin ? 'Click a date to manage slots or declare holidays' : 'Placement schedule — view only'}
-        </p>
-      </div>
-
-      {renderAdminBar()}
-
-      <div className={`card calendar-card ${isLoading ? 'cal-loading' : ''}`}>
+      {/* Calendar grid */}
+      <div className={`card calendar-card${isLoading?' cal-loading':''}`}>
         <div className="calendar-header-nav">
           <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth()-1, 1))}>&lt;</button>
-          <h2 className="current-month">{format(currentDate, 'MMMM yyyy')}</h2>
+          <h2 className="current-month">{format(currentDate,'MMMM yyyy')}</h2>
           <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth()+1, 1))}>&gt;</button>
         </div>
         <div className="days-row">
@@ -316,6 +515,72 @@ const Calendar = ({ userRole }) => {
         </div>
         <div>{rows}</div>
       </div>
+
+      {/* Note panel */}
+      {noteTarget && (
+        <div className="note-overlay" onClick={() => setNoteTarget(null)}>
+          <div className="note-panel" onClick={e => e.stopPropagation()}>
+            <div className="note-panel__header">
+              <p className="note-panel__title">
+                📝 Note — {rawCompanies.find(c=>c._id===noteTarget.companyId)?.companyName} · Slot {noteTarget.slot}
+              </p>
+              <button className="note-panel__close" onClick={() => setNoteTarget(null)}>✕</button>
+            </div>
+            <textarea className="note-panel__textarea" value={noteText} onChange={e => setNoteText(e.target.value)}
+              placeholder="Write admin notes, reminders, special instructions..." rows={5} />
+            <div className="note-panel__footer">
+              <button className="cal-action-btn cal-action-btn--primary" onClick={saveNote} disabled={noteSaving}>
+                {noteSaving ? 'Saving…' : 'Save Note'}
+              </button>
+              <button className="cal-action-btn cal-action-btn--exit" onClick={() => setNoteTarget(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Company detail popup */}
+      {detailCo && (() => {
+        const c = detailCo;
+        return (
+          <div className="detail-overlay" onClick={() => setDetailCo(null)}>
+            <div className="detail-popup" onClick={e => e.stopPropagation()}>
+              <div className="detail-popup__header">
+                <div>
+                  <p className="detail-popup__name">{c.companyName}</p>
+                  <p className="detail-popup__sub">{c.hiringType} · {c.schedule?.date} · Slot {c.schedule?.slot}</p>
+                </div>
+                <button className="note-panel__close" onClick={() => setDetailCo(null)}>✕</button>
+              </div>
+              <div className="detail-popup__body">
+                <div className="detail-row"><span className="detail-label">CGPA Cutoff</span><span className="detail-value">{c.cgpaCutoff}+</span></div>
+                <div className="detail-row"><span className="detail-label">Conduct Modes</span><span className="detail-value">{c.conductModes?.join(', ')}</span></div>
+                <div className="detail-row"><span className="detail-label">Eligible Branches</span><span className="detail-value">{c.eligibleBranches?.join(', ')}</span></div>
+                <div className="detail-row"><span className="detail-label">Eligible Batches</span><span className="detail-value">{c.eligibleBatches?.join(', ')}</span></div>
+                <div className="detail-row"><span className="detail-label">Status</span><span className="detail-value">{c.status}</span></div>
+                {c.schedule?.note && (
+                  <div className="detail-note">
+                    <span className="detail-label">Admin Note</span>
+                    <p className="detail-note__text">{c.schedule.note}</p>
+                  </div>
+                )}
+                <div className="detail-rooms">
+                  <p className="detail-label" style={{ marginBottom:'8px' }}>Room Usage</p>
+                  {c.conductModes?.map(m => {
+                    const cap = ROOM_CAPACITY[m];
+                    return (
+                      <div key={m} className="detail-room-row">
+                        <span className="detail-room-mode">{m}</span>
+                        <span className="detail-room-cap">{cap===Infinity?'Online (unlimited)':`${cap} room${cap>1?'s':''}`}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
     </div>
   );
 };

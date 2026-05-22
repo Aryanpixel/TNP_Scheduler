@@ -1,17 +1,14 @@
+// server/routes/companyRoutes.js
 import express from 'express';
-// We import the 3 controller functions here:
-import { registerCompany, getCompanies, updateCompany } from '../controllers/companyController.js'; 
+import { registerCompany, getCompanies, updateCompany, checkSlot } from '../controllers/companyController.js';
 import { protect, admin } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Base route: /api/companies
-router.route('/')
-  .post(protect, admin, registerCompany)
-  .get(protect, getCompanies);
+// Must be before /:id to avoid Express treating "check-slot" as an :id param
+router.post('/check-slot', protect, admin, checkSlot);
 
-// ID route: /api/companies/:id
-router.route('/:id')
-  .put(protect, admin, updateCompany);
+router.route('/').post(protect, admin, registerCompany).get(protect, getCompanies);
+router.route('/:id').put(protect, admin, updateCompany);
 
 export default router;

@@ -133,7 +133,7 @@
   padding: 20px;
 }
 
-/* ── Calendar modal ─────────────────────── */
+/* ── Legacy calendar modal (kept for any fallback) ─── */
 .co-cal-modal {
   background: #161e2e;
   border: 1px solid rgba(255,255,255,0.1);
@@ -257,3 +257,218 @@
 .co-detail-section { display: flex; flex-direction: column; gap: 7px; padding-bottom: 12px; border-bottom: 1px solid #f1f5f9; }
 .co-detail-label   { font-size: 0.78rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; }
 .co-detail-value   { font-size: 0.9rem; font-weight: 600; color: #1e293b; }
+
+
+/* =========================================
+   RICH CALENDAR MODAL  —  rco-* namespace
+   ========================================= */
+
+.rco-modal {
+  background: #0f172a;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 20px;
+  width: 100%;
+  max-width: 900px;          /* wider to fit the full 7-col grid comfortably */
+  max-height: 92vh;
+  overflow-y: auto;
+  box-shadow: 0 30px 70px rgba(0,0,0,0.6);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Header ─── */
+.rco-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+.rco-modal-title { font-size: 1.1rem; font-weight: 800; color: white; margin-bottom: 4px; }
+.rco-modal-sub   { font-size: 0.78rem; color: #94a3b8; }
+
+/* ── Nav ─── */
+.rco-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  background: rgba(0,0,0,0.20);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+.rco-nav button {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: white;
+  padding: 6px 16px;
+  border-radius: 7px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.rco-nav button:hover { background: rgba(255,255,255,0.14); }
+.rco-month { color: white; font-weight: 800; font-size: 1rem; }
+
+/* ── Day names ─── */
+.rco-day-names {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  padding: 8px 12px 4px;
+  background: rgba(15,23,42,0.6);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+.rco-day-names span {
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── Grid ─── */
+.rco-grid { flex: 1; overflow-y: auto; }
+.rco-row  { display: grid; grid-template-columns: repeat(7, 1fr); }
+
+/* ── Cell ─── */
+.rco-cell {
+  min-height: 120px;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  padding: 8px 6px 6px;
+  transition: background 0.15s;
+}
+.rco-cell--clickable { cursor: pointer; }
+.rco-cell--clickable:hover { background: rgba(255,255,255,0.04); }
+.rco-cell--out      { opacity: 0.25; pointer-events: none; }
+.rco-cell--today    { background: rgba(59,130,246,0.07); }
+.rco-cell--holiday  { background: rgba(245,158,11,0.06); cursor: not-allowed; }
+.rco-cell--selected { background: rgba(59,130,246,0.13); outline: 2px solid #3b82f6; outline-offset: -2px; }
+
+/* Date number */
+.rco-date-row   { display: flex; justify-content: flex-end; margin-bottom: 5px; }
+.rco-date-num   { font-size: 0.75rem; font-weight: 600; color: #94a3b8; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
+.rco-date-today { background: #3b82f6; color: white; font-weight: 800; }
+
+/* Holiday tag */
+.rco-hol-tag {
+  background: rgba(245,158,11,0.15);
+  border: 1px solid rgba(245,158,11,0.30);
+  color: #f59e0b;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 3px 6px;
+  border-radius: 5px;
+  text-align: center;
+}
+
+/* ── Mini slots inside cell ─── */
+.rco-slots { display: flex; flex-direction: column; gap: 3px; }
+.rco-slot  {
+  height: 20px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  padding: 0 5px;
+  overflow: hidden;
+}
+.rco-slot--target { outline: 1px solid #60a5fa; }
+
+/* ── Footer ─── */
+.rco-footer {
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding: 16px 20px;
+  flex-shrink: 0;
+  background: rgba(0,0,0,0.20);
+}
+.rco-footer-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.rco-hint {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  width: 100%;
+  text-align: center;
+  padding: 8px 0;
+}
+
+/* ── Slot picker ─── */
+.rco-slot-picker { flex: 1; min-width: 300px; }
+.rco-slot-picker label { display: block; font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+.rco-slot-btns  { display: flex; gap: 8px; }
+
+/* Individual slot buttons */
+.rco-sb {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  transition: all 0.15s;
+  position: relative;
+  background: rgba(255,255,255,0.05);
+  color: #94a3b8;
+}
+.rco-sb:hover { opacity: 0.85; transform: translateY(-1px); }
+
+/* Status variants */
+.rco-sb--free    { border-color: rgba(16,185,129,0.35);  color: #6ee7b7; background: rgba(16,185,129,0.08);  }
+.rco-sb--coexist { border-color: rgba(245,158,11,0.35);  color: #fcd34d; background: rgba(245,158,11,0.08);  }
+.rco-sb--clash   { border-color: rgba(239,68,68,0.35);   color: #fca5a5; background: rgba(239,68,68,0.08);   cursor: not-allowed; }
+
+/* Active (selected) slot */
+.rco-sb--active  { outline: 2px solid #3b82f6; outline-offset: 1px; }
+
+.rco-sb-icon { font-size: 0.7rem; opacity: 0.8; }
+.rco-sb-occ  {
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+
+/* Confirm button */
+.rco-confirm-btn {
+  white-space: nowrap;
+  padding: 11px 22px;
+  flex-shrink: 0;
+  align-self: flex-end;
+}
+
+/* ── Clash box inside modal ─── */
+.rco-clash-box {
+  background: rgba(239,68,68,0.10);
+  border: 1px solid rgba(239,68,68,0.30);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  font-size: 0.82rem;
+  color: #fca5a5;
+}
+.rco-clash-box strong { color: #fca5a5; display: block; margin-bottom: 6px; }
+.rco-clash-box ul { padding-left: 16px; margin: 0 0 10px; line-height: 1.7; }
+.rco-clash-box button {
+  background: rgba(239,68,68,0.2);
+  border: 1px solid rgba(239,68,68,0.35);
+  color: #fca5a5;
+  padding: 4px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
