@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import './styles/global.css';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -11,6 +11,12 @@ function App() {
   const [user, setUser] = useState(null);
   const [currentPage, setCurrentPage] = useState('companies');
   const [authView, setAuthView] = useState('login');
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   if (!user) {
     if (authView === 'signup') {
@@ -75,6 +81,8 @@ function App() {
           {currentPage === 'profile' && (
             <Profile
               user={user}
+              theme={theme}
+              onThemeChange={setTheme}
               onLogout={() => {
                 localStorage.removeItem('token');
                 setUser(null);

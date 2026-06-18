@@ -18,10 +18,41 @@ const SLOT_COLORS = [
 const ROOM_CAPACITY = { Interview: 5, GD: 2, PPT: 1, OA: Infinity };
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
-const emptySlots   = () => ({ 1:null, 2:null, 3:null, 4:null, 5:null });
+const emptySlots   = () => ({ 1:[], 2:[], 3:[], 4:[], 5:[] });
 const getSafeToken = () => { const t = localStorage.getItem('token'); return t ? t.replace(/"/g,'') : null; };
 const fmtKey       = (d) => format(d, 'yyyy-MM-dd');
 const buildLabel   = (c) => { const m = c.conductModes?.[0]||''; return m ? `${c.companyName} (${m})` : c.companyName; };
+const getSlotCompanies = (slotValue) => Array.isArray(slotValue) ? slotValue : [];
+const countFilledSlots = (daySlotMap) => [1,2,3,4,5].filter(n => getSlotCompanies(daySlotMap[n]).length > 0).length;
+const getCompanySlotOccupants = (companies, date, slot, excludeId = null) => companies.filter(c =>
+  c.schedule?.date === date &&
+  String(c.schedule?.slot) === String(slot) &&
+  c._id !== excludeId
+);
+
+const checkClientClash = (incoming, occupants) => {
+  const clashes = [];
+
+  for (const co of occupants) {
+    const sharedBranches = incoming.eligibleBranches?.filter(b => co.eligibleBranches?.includes(b)) || [];
+    const sharedModes = incoming.conductModes?.filter(m => co.conductModes?.includes(m)) || [];
+
+    if (sharedBranches.length > 0 && sharedModes.length > 0) {
+      clashes.push(`Branch+mode clash with "${co.companyName}": branches [${sharedBranches.join(', ')}], modes [${sharedModes.join(', ')}]`);
+    }
+  }
+
+  for (const mode of incoming.conductModes || []) {
+    const cap = ROOM_CAPACITY[mode] ?? 1;
+    if (cap === Infinity) continue;
+    const inUse = occupants.filter(co => co.conductModes?.includes(mode)).length;
+    if (inUse >= cap) {
+      clashes.push(`No ${mode} room available. Capacity ${cap} is already occupied.`);
+    }
+  }
+
+  return clashes;
+};
 
 // ─── RECOMMENDATION ENGINE ────────────────────────────────────────────────────
 //
@@ -65,16 +96,13 @@ const computeUrgency = (dateStr, filledCount, today = new Date()) => {
 
   const urgency = proximity * (1 + 0.4 * congestionBonus) * weekdayFactor;
 
-  let label, tagline;
+  let label;
   if (urgency >= 0.55) {
     label   = 'Aggressive';
-    tagline = 'Very soon — schedule now';
   } else if (urgency >= 0.18) {
     label   = 'Normal';
-    tagline = 'Coming up — plan ahead';
   } else {
     label   = 'Lenient';
-    tagline = 'Far out — no rush';
   }
 
   return { label, urgency: Math.round(urgency * 1000) / 1000, daysAway };
@@ -92,7 +120,7 @@ const Calendar = ({ userRole }) => {
   const [tab, setTab]                     = useState('allot');
   const [allotSlot, setAllotSlot]         = useState('1');
   const [selCoId, setSelCoId]             = useState('');
-  const [cancelSlot, setCancelSlot]       = useState('1');
+  const [cancelCoId, setCancelCoId]       = useState('');
   const [updCoId, setUpdCoId]             = useState('');
   const [updNewSlot, setUpdNewSlot]       = useState('1');
   const [holName, setHolName]             = useState('');
@@ -105,6 +133,8 @@ const Calendar = ({ userRole }) => {
 
   // Detail popup
   const [detailCo, setDetailCo]           = useState(null);
+  const [recCoId, setRecCoId]             = useState('');
+  const [recUrgency, setRecUrgency]       = useState('Normal');
 
   const isAdmin = userRole === 'admin';
 
@@ -116,7 +146,8 @@ const Calendar = ({ userRole }) => {
         const dk = c.schedule.date;
         const sn = Number(c.schedule.slot); // coerce — DB returns strings, keys are numbers
         if (!s[dk]) s[dk] = emptySlots();
-        s[dk][sn] = { id: c._id, display: buildLabel(c), company: c };
+        if (!Array.isArray(s[dk][sn])) s[dk][sn] = [];
+        s[dk][sn].push({ id: c._id, display: buildLabel(c), company: c });
       }
     });
     return s;
@@ -156,9 +187,9 @@ const Calendar = ({ userRole }) => {
       if (!proceed) return;
     }
     const s = daySlots(d);
-    const ff = [1,2,3,4,5].find(n => !s[n]) || 1;
+    const ff = [1,2,3,4,5].find(n => getSlotCompanies(s[n]).length === 0) || 1;
     setAllotSlot(String(ff)); setSelCoId('');
-    setCancelSlot('1'); setUpdCoId(''); setUpdNewSlot('1');
+    setCancelCoId(''); setUpdCoId(''); setUpdNewSlot('1');
     setHolName(holiday(d) || ''); setClashWarning(null);
     setTab(holiday(d) ? 'holiday' : 'allot');
     setSelDate(d);
@@ -181,7 +212,6 @@ const Calendar = ({ userRole }) => {
   // ── ALLOT ────────────────────────────────────────────────
   const doAllot = async () => {
     if (!selCoId) return alert('Select a company.');
-    if (daySlots(selDate)[allotSlot]) return alert('Slot already taken.');
     setClashWarning(null);
     try { await apiPut(selCoId, { schedule:{ date:fmtKey(selDate), slot:allotSlot } }); await fetchAll(); closeDate(); }
     catch(e) { if (e.clashes) setClashWarning(e.clashes); else alert(e.message); }
@@ -190,7 +220,6 @@ const Calendar = ({ userRole }) => {
   // ── UPDATE ───────────────────────────────────────────────
   const doUpdate = async () => {
     if (!updCoId) return alert('Select a company to move.');
-    if (daySlots(selDate)[updNewSlot]) return alert('Target slot is occupied.');
     setClashWarning(null);
     try { await apiPut(updCoId, { schedule:{ date:fmtKey(selDate), slot:updNewSlot } }); await fetchAll(); closeDate(); }
     catch(e) { if (e.clashes) setClashWarning(e.clashes); else alert(e.message); }
@@ -198,10 +227,10 @@ const Calendar = ({ userRole }) => {
 
   // ── CANCEL ───────────────────────────────────────────────
   const doCancel = async () => {
-    const co = daySlots(selDate)[Number(cancelSlot)];
-    if (!co) return alert('Slot is already empty.');
-    if (!window.confirm(`Cancel "${co.display}"?`)) return;
-    try { await apiPut(co.id, { schedule:{ date:null, slot:null, note:'' } }); await fetchAll(); closeDate(); }
+    const co = rawCompanies.find(c => c._id === cancelCoId);
+    if (!co) return alert('Select a scheduled company to cancel.');
+    if (!window.confirm(`Cancel "${buildLabel(co)}"?`)) return;
+    try { await apiPut(co._id, { schedule:{ date:null, slot:null, note:'' } }); await fetchAll(); closeDate(); }
     catch(e) { alert(e.message); }
   };
 
@@ -233,39 +262,69 @@ const Calendar = ({ userRole }) => {
   // ── RECOMMENDATIONS ──────────────────────────────────────
   // Smarter: proximity + congestion consolidation + weekday preference
   const recommendations = useMemo(() => {
-    const today   = new Date();
-    const byLabel = { Aggressive:[], Normal:[], Lenient:[] };
+    const today = new Date();
+    const targetCompany = rawCompanies.find(c => c._id === recCoId);
 
-    for (let i = 1; i <= 60; i++) {
-      const d  = addDays(today, i);
+    if (!targetCompany) {
+      return { Aggressive:[], Normal:[], Lenient:[] };
+    }
+
+    const urgencyWindows = {
+      Aggressive: { start:1, end:10, preferred:3 },
+      Normal:     { start:5, end:30, preferred:14 },
+      Lenient:    { start:15, end:60, preferred:35 },
+    };
+
+    const selectedWindow = urgencyWindows[recUrgency] || urgencyWindows.Normal;
+    const all = [];
+
+    for (let i = selectedWindow.start; i <= selectedWindow.end; i++) {
+      const d = addDays(today, i);
       const dk = fmtKey(d);
       if (holidays[dk]) continue;
 
-      const s      = slots[dk] || emptySlots();
-      const filled = [1,2,3,4,5].filter(n => s[n]).length;
-      if (filled >= 5) continue;
+      const s = slots[dk] || emptySlots();
+      const filledSlots = countFilledSlots(s);
+      const totalCompaniesOnDay = [1,2,3,4,5].reduce((sum, n) => sum + getSlotCompanies(s[n]).length, 0);
 
-      const { label, urgency, daysAway } = computeUrgency(dk, filled, today);
+      for (const slotNum of [1,2,3,4,5]) {
+        const occupants = getCompanySlotOccupants(rawCompanies, dk, slotNum, targetCompany._id);
+        const clashes = checkClientClash(targetCompany, occupants);
+        if (clashes.length > 0) continue;
 
-      // Cap each bucket at 3 entries, sorted by urgency desc within bucket
-      if (byLabel[label].length < 3) {
-        byLabel[label].push({
+        const slotLoad = occupants.length;
+        const urgencyMeta = computeUrgency(dk, filledSlots, today);
+        const daysFromPreferred = Math.abs(i - selectedWindow.preferred);
+        const weekendPenalty = isWeekend(dk) ? 18 : 0;
+        const emptyDayPenalty = totalCompaniesOnDay === 0 ? 8 : 0;
+        const crowdedDayPenalty = totalCompaniesOnDay >= 7 ? 14 : 0;
+        const coexistBonus = slotLoad > 0 ? 10 : 0;
+        const spreadBonus = filledSlots < 4 ? 5 : 0;
+        const score = 100 - daysFromPreferred * 3 - weekendPenalty - emptyDayPenalty - crowdedDayPenalty + coexistBonus + spreadBonus + urgencyMeta.urgency;
+
+        all.push({
           date: dk,
+          slot: slotNum,
           displayDate: format(d, 'EEE, MMM d'),
-          freeSlots:   5 - filled,
-          filledSlots: filled,
-          daysAway,
-          urgency,
+          daysAway: i,
+          freeSlots: 5 - filledSlots,
+          filledSlots,
+          companiesOnDay: totalCompaniesOnDay,
+          slotLoad,
           weekend: isWeekend(dk),
+          score,
         });
       }
     }
 
-    // Sort each bucket by urgency descending
-    Object.values(byLabel).forEach(arr => arr.sort((a, b) => b.urgency - a.urgency));
+    all.sort((a, b) => b.score - a.score);
 
-    return byLabel;
-  }, [slots, holidays]);
+    return {
+      Aggressive: recUrgency === 'Aggressive' ? all.slice(0, 6) : [],
+      Normal:     recUrgency === 'Normal' ? all.slice(0, 6) : [],
+      Lenient:    recUrgency === 'Lenient' ? all.slice(0, 6) : [],
+    };
+  }, [rawCompanies, slots, holidays, recCoId, recUrgency]);
 
   // ── CALENDAR GRID ────────────────────────────────────────
   const monthStart = startOfMonth(currentDate);
@@ -298,25 +357,37 @@ const Calendar = ({ userRole }) => {
           ) : (
             <div className="cal-slots">
               {[1,2,3,4,5].map(n => {
-                const c    = SLOT_COLORS[n-1];
-                const slot = s[n];
+                const c = SLOT_COLORS[n-1];
+                const slotCompanies = getSlotCompanies(s[n]);
+                const hasCompanies = slotCompanies.length > 0;
                 return (
                   <div key={n}
-                    className={`cal-slot${slot?' cal-slot--filled':' cal-slot--empty'}`}
-                    style={{ background: slot?c.bg:'rgba(148,163,184,0.06)', border:`1px solid ${slot?c.border:'rgba(148,163,184,0.18)'}` }}
-                    onClick={slot ? (e) => { e.stopPropagation(); setDetailCo(slot.company); } : undefined}
-                    title={slot ? `Click for details: ${slot.display}` : `Slot ${n} — available`}
+                    className={`cal-slot${hasCompanies?' cal-slot--filled cal-slot--stacked':' cal-slot--empty'}`}
+                    style={{ background: hasCompanies?c.bg:'rgba(148,163,184,0.06)', border:`1px solid ${hasCompanies?c.border:'rgba(148,163,184,0.18)'}` }}
+                    title={hasCompanies ? slotCompanies.map(slot => slot.display).join(', ') : `Slot ${n} - available`}
                   >
-                    <span className={slot?'slot-filled':'slot-empty'} style={slot?{color:c.text}:{}}>
-                      {slot ? slot.display : `S${n}`}
-                    </span>
-                    {slot && isAdmin && (
-                      <button className="slot-note-btn"
-                        title={slot.company.schedule?.note ? 'Edit note' : 'Add note'}
-                        onClick={(e) => { e.stopPropagation(); setNoteTarget({ companyId:slot.id, slot:n }); setNoteText(slot.company.schedule?.note||''); }}
-                      >
-                        {slot.company.schedule?.note ? '📝' : '+'}
-                      </button>
+                    {hasCompanies ? (
+                      slotCompanies.map(slot => (
+                        <div
+                          key={slot.id}
+                          className="slot-company-line"
+                          onClick={(e) => { e.stopPropagation(); setDetailCo(slot.company); }}
+                        >
+                          <span className="slot-filled" style={{ color:c.text }}>
+                            {slot.display}
+                          </span>
+                          {isAdmin && (
+                            <button className="slot-note-btn"
+                              title={slot.company.schedule?.note ? 'Edit note' : 'Add note'}
+                              onClick={(e) => { e.stopPropagation(); setNoteTarget({ companyId:slot.id, slot:n }); setNoteText(slot.company.schedule?.note||''); }}
+                            >
+                              {slot.company.schedule?.note ? 'N' : '+'}
+                            </button>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <span className="slot-empty">S{n}</span>
                     )}
                   </div>
                 );
@@ -370,7 +441,10 @@ const Calendar = ({ userRole }) => {
                 <div className="control-group">
                   <label>Slot</label>
                   <select className="admin-select" value={allotSlot} onChange={e=>{ setAllotSlot(e.target.value); setClashWarning(null); }}>
-                    {[1,2,3,4,5].map(n=><option key={n} value={n} disabled={!!s[n]}>Slot {n} {s[n]?'— Booked':'(Free)'}</option>)}
+                    {[1,2,3,4,5].map(n => {
+                      const count = getSlotCompanies(s[n]).length;
+                      return <option key={n} value={n}>Slot {n} {count ? `- ${count} booked` : '(Free)'}</option>;
+                    })}
                   </select>
                 </div>
                 <div className="control-group">
@@ -397,7 +471,10 @@ const Calendar = ({ userRole }) => {
                 <div className="control-group">
                   <label>Move to Slot</label>
                   <select className="admin-select" value={updNewSlot} onChange={e=>setUpdNewSlot(e.target.value)}>
-                    {[1,2,3,4,5].map(n=><option key={n} value={n} disabled={!!s[n]}>Slot {n} {s[n]?'— Booked':'(Free)'}</option>)}
+                    {[1,2,3,4,5].map(n => {
+                      const count = getSlotCompanies(s[n]).filter(slot => slot.id !== updCoId).length;
+                      return <option key={n} value={n}>Slot {n} {count ? `- ${count} booked` : '(Free)'}</option>;
+                    })}
                   </select>
                 </div>
                 <button className="cal-action-btn cal-action-btn--update" onClick={doUpdate} disabled={!updCoId}>Move</button>
@@ -407,12 +484,13 @@ const Calendar = ({ userRole }) => {
 
             {tab==='cancel' && (<>
               <div className="control-group">
-                <label>Slot to Cancel</label>
-                <select className="admin-select" value={cancelSlot} onChange={e=>setCancelSlot(e.target.value)}>
-                  {[1,2,3,4,5].map(n=><option key={n} value={n}>Slot {n} {s[n]?`— ${s[n].display}`:'(empty)'}</option>)}
+                <label>Company to Cancel</label>
+                <select className="admin-select" value={cancelCoId} onChange={e=>setCancelCoId(e.target.value)}>
+                  <option value="">-- Select --</option>
+                  {scheduledOnDay.map(c=><option key={c._id} value={c._id}>{buildLabel(c)} - Slot {c.schedule.slot}</option>)}
                 </select>
               </div>
-              <button className="cal-action-btn cal-action-btn--danger" onClick={doCancel} disabled={!s[Number(cancelSlot)]}>Cancel</button>
+              <button className="cal-action-btn cal-action-btn--danger" onClick={doCancel} disabled={!cancelCoId}>Cancel</button>
               <button className="cal-action-btn cal-action-btn--exit" onClick={closeDate}>Exit</button>
             </>)}
 
@@ -442,6 +520,29 @@ const Calendar = ({ userRole }) => {
       )}
 
       {/* Recommendation panel */}
+      {isAdmin && (
+        <div className="rec-panel">
+          <p className="rec-panel__title">Slot Recommendations</p>
+          <p className="rec-panel__sub">
+            Select a company and urgency. Suggestions avoid holidays, branch/mode clashes, and room-capacity conflicts.
+          </p>
+          <div className="rec-controls">
+            <select className="admin-select" value={recCoId} onChange={e => setRecCoId(e.target.value)}>
+              <option value="">Select company</option>
+              {rawCompanies.map(c => (
+                <option key={c._id} value={c._id}>
+                  {c.companyName}{c.schedule?.date ? ` - scheduled ${c.schedule.date}` : ''}
+                </option>
+              ))}
+            </select>
+            <select className="admin-select" value={recUrgency} onChange={e => setRecUrgency(e.target.value)}>
+              <option value="Aggressive">Aggressive - sooner dates</option>
+              <option value="Normal">Normal - balanced dates</option>
+              <option value="Lenient">Lenient - flexible dates</option>
+            </select>
+          </div>
+        </div>
+      )}
       {(() => {
         const { Aggressive, Normal, Lenient } = recommendations;
         if (!Aggressive?.length && !Normal?.length && !Lenient?.length) return null;
@@ -477,23 +578,35 @@ const Calendar = ({ userRole }) => {
                   icon:  '🟢',
                   items: recommendations.Lenient || [],
                 },
-              ].map(col => (
+              ].filter(col => col.label === recUrgency).map(col => (
                 <div key={col.label} className="rec-col" style={{ background: col.bg, borderColor: col.color + '55' }}>
                   <p className="rec-col__label" style={{ color: col.color }}>{col.icon} {col.label}</p>
                   <p className="rec-col__desc">{col.desc}</p>
                   {col.items.length === 0
                     ? <p className="rec-col__empty">No dates in this range</p>
                     : col.items.map(r => (
-                        <div key={r.date} className="rec-item">
+                        <button
+                          key={`${r.date}-${r.slot}`}
+                          type="button"
+                          className="rec-item rec-item--button"
+                          onClick={() => {
+                            const recommendedDate = new Date(r.date + 'T00:00:00');
+                            setCurrentDate(recommendedDate);
+                            setSelDate(recommendedDate);
+                            setSelCoId(recCoId);
+                            setAllotSlot(String(r.slot));
+                            setTab('allot');
+                          }}
+                        >
                           <div>
-                            <span className="rec-item__date">{r.displayDate}</span>
+                            <span className="rec-item__date">{r.displayDate} - Slot {r.slot}</span>
                             {r.weekend && <span className="rec-item__weekend"> · Weekend</span>}
                             {r.filledSlots > 0 && (
                               <span className="rec-item__density"> · {r.filledSlots} co. booked</span>
                             )}
                           </div>
-                          <span className="rec-item__slots">{r.freeSlots} free</span>
-                        </div>
+                          <span className="rec-item__slots">score {Math.round(r.score)}</span>
+                        </button>
                       ))
                   }
                 </div>

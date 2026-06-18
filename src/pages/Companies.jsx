@@ -25,6 +25,7 @@ const SLOT_COLORS = [
 const getSafeToken = () => { const t = localStorage.getItem('token'); return t ? t.replace(/"/g, '') : null; };
 const fmtKey = (d) => format(d, 'yyyy-MM-dd');
 const buildLabel = (c) => { const m = c.conductModes?.[0] || ''; return m ? `${c.companyName} (${m})` : c.companyName; };
+const getSlotCompanies = (slotValue) => Array.isArray(slotValue) ? slotValue : [];
 
 // ─── CLIENT-SIDE CLASH CHECK (mirrors backend logic) ─────────────────────────
 // Two companies clash only if they share BOTH a branch AND a mode.
@@ -115,7 +116,9 @@ const Companies = ({ userRole }) => {
     companiesList.forEach(c => {
       if (c.schedule?.date && c.schedule?.slot) {
         if (!s[c.schedule.date]) s[c.schedule.date] = {};
-        s[c.schedule.date][Number(c.schedule.slot)] = c; // coerce — DB returns string, keys are numbers
+        const slotNum = Number(c.schedule.slot);
+        if (!Array.isArray(s[c.schedule.date][slotNum])) s[c.schedule.date][slotNum] = [];
+        s[c.schedule.date][slotNum].push(c); // coerce — DB returns string, keys are numbers
       }
     });
     return s;
@@ -140,9 +143,7 @@ const Companies = ({ userRole }) => {
   // ── DETERMINE SLOT AVAILABILITY LABEL ─────────────
   // For a given date + slot, check if the current active company can fit
   const getSlotStatus = (dateStr, slotNum, activeCoId) => {
-    const occupants = Object.values(daySlots(dateStr)).filter(c =>
-      String(c.schedule?.slot) === String(slotNum) && c._id !== activeCoId
-    );
+    const occupants = getSlotCompanies(daySlots(dateStr)[slotNum]).filter(c => c._id !== activeCoId);
     if (occupants.length === 0) return 'free';
 
     // Check if the active company would clash
@@ -177,9 +178,7 @@ const Companies = ({ userRole }) => {
       companyName:      activeCo?.companyName      || companyName || 'New Company',
     };
 
-    const occupants = Object.values(daySlots(dateStr)).filter(c =>
-      String(c.schedule?.slot) === String(tempSlot) && c._id !== activeCompanyId
-    );
+    const occupants = getSlotCompanies(daySlots(dateStr)[tempSlot]).filter(c => c._id !== activeCompanyId);
 
     const clashes = checkClientClash(incoming, occupants);
     if (clashes.length > 0) {
@@ -289,23 +288,24 @@ const Companies = ({ userRole }) => {
             ) : (
               <div className="rco-slots">
                 {[1, 2, 3, 4, 5].map(n => {
-                  const c     = SLOT_COLORS[n - 1];
-                  const occ   = slotsOnDay[n];
+                  const c = SLOT_COLORS[n - 1];
+                  const slotCompanies = getSlotCompanies(slotsOnDay[n]);
+                  const hasCompanies = slotCompanies.length > 0;
                   // Highlight the currently-selected slot on the selected date
                   const isTargetSlot = isSel && String(tempSlot) === String(n);
 
                   return (
                     <div
                       key={n}
-                      className={`rco-slot${occ ? ' rco-slot--filled' : ' rco-slot--empty'}${isTargetSlot ? ' rco-slot--target' : ''}`}
+                      className={`rco-slot${hasCompanies ? ' rco-slot--filled' : ' rco-slot--empty'}${isTargetSlot ? ' rco-slot--target' : ''}`}
                       style={{
-                        background:   occ ? c.bg  : isTargetSlot ? 'rgba(59,130,246,0.18)' : 'rgba(148,163,184,0.06)',
-                        border:       `1px solid ${occ ? c.border : isTargetSlot ? '#3b82f6' : 'rgba(148,163,184,0.18)'}`,
+                        background:   hasCompanies ? c.bg  : isTargetSlot ? 'rgba(59,130,246,0.18)' : 'rgba(148,163,184,0.06)',
+                        border:       `1px solid ${hasCompanies ? c.border : isTargetSlot ? '#3b82f6' : 'rgba(148,163,184,0.18)'}`,
                       }}
-                      title={occ ? `${occ.companyName} (${occ.conductModes?.join(', ')}) — ${occ.eligibleBranches?.join(', ')}` : `Slot ${n} — available`}
+                      title={hasCompanies ? slotCompanies.map(co => `${co.companyName} (${co.conductModes?.join(', ')})`).join(', ') : `Slot ${n} - available`}
                     >
-                      <span style={{ color: occ ? c.text : isTargetSlot ? '#93c5fd' : 'rgba(148,163,184,0.4)', fontSize: '0.62rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {occ ? buildLabel(occ) : `S${n}`}
+                      <span style={{ color: hasCompanies ? c.text : isTargetSlot ? '#93c5fd' : 'rgba(148,163,184,0.4)', fontSize: '0.62rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {hasCompanies ? slotCompanies.map(buildLabel).join(' + ') : `S${n}`}
                       </span>
                     </div>
                   );
@@ -324,7 +324,7 @@ const Companies = ({ userRole }) => {
     const slotStatuses = selDateStr ? [1,2,3,4,5].map(n => ({
       n,
       status: getSlotStatus(selDateStr, n, activeCompanyId),
-      occ: daySlots(selDateStr)[n],
+      occupants: getSlotCompanies(daySlots(selDateStr)[n]),
     })) : [];
 
     return (
@@ -371,7 +371,8 @@ const Companies = ({ userRole }) => {
                   <div className="rco-slot-picker">
                     <label>Choose Slot for {format(calSelDate, 'MMM d, yyyy')}</label>
                     <div className="rco-slot-btns">
-                      {slotStatuses.map(({ n, status, occ }) => {
+                      {slotStatuses.map(({ n, status, occupants }) => {
+                        const occupantNames = occupants.map(co => co.companyName).join(', ');
                         const statusClass = {
                           free:    'rco-sb--free',
                           coexist: 'rco-sb--coexist',
@@ -384,11 +385,11 @@ const Companies = ({ userRole }) => {
                             key={n}
                             className={`rco-sb ${statusClass}${String(tempSlot) === String(n) ? ' rco-sb--active' : ''}`}
                             onClick={() => { setTempSlot(String(n)); setCalClash(null); }}
-                            title={occ ? `Occupied by: ${occ.companyName} (${occ.conductModes?.join(', ')}) for ${occ.eligibleBranches?.join(', ')}` : 'Available'}
+                            title={occupants.length ? `Occupied by: ${occupantNames}` : 'Available'}
                           >
                             <span>S{n}</span>
                             <span className="rco-sb-icon">{statusIcon}</span>
-                            {occ && <span className="rco-sb-occ">{occ.companyName.substring(0,6)}</span>}
+                            {occupants.length > 0 && <span className="rco-sb-occ">{occupants.length} co.</span>}
                           </button>
                         );
                       })}
